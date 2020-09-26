@@ -224,4 +224,4 @@ We can have one topic dedicated for a specific time frame. We could have a "minu
 
 ### Coping with failure
 When the application is processing the messages from Kafka, it commits to a specific partition that the message was consumed. If the application crashes, we can specify to the consumer to read the messages from the last commited offset.
-
+However, the `User IDs` saved in the current `HashSet` are lost and not counted which might lead to inconsistent data. We could for example have in a shutdown hook the `User IDs` saved to a file (HDFS file system is a good option if we run in a Hadoop environment) which can be read when the application is re-started.

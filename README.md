@@ -13,6 +13,7 @@ Please find below the prerequisites, and the steps to run the `Kafka User Counte
 * You need to have `Zookeeper` service running locally on port `2181`
 
 ### Building the project
+* Clone the project ``
 * At the root of the project, simply run `sbt compile`. All dependencies should be successfully downloaded.
 
 ### Starting the application

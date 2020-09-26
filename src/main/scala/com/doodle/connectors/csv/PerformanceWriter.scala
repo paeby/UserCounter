@@ -14,9 +14,9 @@ class PerformanceWriter {
   }
 
   /**
-   * Appends the given performance record inside the performance csv file
-   * @param perfRecord PerformanceRecord encapsulating performance metrics
-   */
+    * Appends the given performance record inside the performance csv file
+    * @param perfRecord PerformanceRecord encapsulating performance metrics
+    */
   def writePerformanceRecord(perfRecord: PerformanceRecord) = {
     try {
       val bw: BufferedWriter = new BufferedWriter(new FileWriter(file, true))

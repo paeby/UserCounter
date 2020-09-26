@@ -25,9 +25,8 @@ class UserCounterState(userCounterProducer: UserCounterProducer) {
   private var currentWindowUsers: HashSet[UserId] = HashSet.empty
   private var nextWindowUsers:    HashSet[UserId] = HashSet.empty
 
-  private var userCounter: Long = 0
-
   // For performance computation purposes
+  private var userCounter:      Long = 0
   private val start:            Long = System.currentTimeMillis()
   private var timeInProcessing: Long = 0
 
@@ -90,6 +89,7 @@ class UserCounterState(userCounterProducer: UserCounterProducer) {
       val percentageOfTimeInProc: Long = timeInProcessing / (elapsedTime + 1)
       println(s"Percentage of time spent in user processing: $percentageOfTimeInProc")
       println(s"Number of user records fetched from Kafka by time frame: $userRecordCount")
+      println("HashSet size " + currentWindowUsers.size)
       println(s"-------------------------------------------------------------")
       if (userCounter % 1000000 == 0) {
         performanceWriter.writePerformanceRecord(

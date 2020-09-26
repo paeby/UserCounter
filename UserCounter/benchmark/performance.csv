@@ -1,0 +1,2 @@
+usedMemoryInBytes,userFramesProcessed,userFramesBySecond,applicationTimeMs,timeInProcessingMs,percentageInUserProcessing,numberOfRecordsPolledKafka,kafkaPollRate,countInterval
+

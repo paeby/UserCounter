@@ -5,21 +5,23 @@ You can find the requirements of the project here [The challenge (Data Engineer)
 
 ## Building and running the project
 
-Please find below the prerequisites, and the steps to run the `Kafka User Counter` application.
+Please find below the prerequisites and the steps to run the `Kafka User Counter` application.
 
 ### Prerequisites
 * It is a `Scala` project, so you need to install `sbt` to compile the project. Please refer to this link [SBT installation](https://docs.scala-lang.org/getting-started/sbt-track/getting-started-with-scala-and-sbt-on-the-command-line.html).
-* `Kafka` service should be running locally on port `9092` (this can be configured in the `application.conf`)
+* `Kafka` service should be running locally on port `9092`
 * `Zookeeper` service should be running locally on port `2181`
+
+Hostname and port of `Kafka` and `Zookeeper` can be configured in `src/main/resources/application.conf`)
 
 ### Building the project
 * Inside a terminal, clone the project `git clone https://github.com/paeby/UserCounter.git` and go inside `UserCounter` folder.
-* At the root of the project, simply run `sbt compile`. All dependencies should be successfully downloaded.
+* At the root of the project, run `sbt compile`. All dependencies should be successfully downloaded.
 
 ### Starting the application
-* You can run the script `create_kafka_topics.sh` which will create one topic `userframes` that will be read from the application, one topic `usercounter` where the unique user count per time frame will be published. The script also publishes 1000 user frames (from `sampledata.json` file) to `userframes` topic. You can modify directly the script if ports / hostnames of `Kafka` and `Zookeeper` are different in your environment.
+* You can run the script `create_kafka_topics.sh` which creates one topic `userframes` that will be read by the application, and one topic `usercounter` where the application will publish the count of unique `User IDs` per time frame. The script also publishes 1000 `User frames` (from `sampledata.json` file) to `userframes` topic. You can modify directly the script if ports / hostnames of `Kafka` and `Zookeeper` are different in your environment.
 * Then, you can run `sbt run` and the application will start. 
-* The count of unique user IDs per minute is published to `usercounter` topic, so you can simply look at the results with `kafka-console-consumer --bootstrap-server [KAFKA_BROKER_HOST]:[KAFKA_BROKER_PORT] --topic usercounter`. 
+* The count of unique `User IDs` per minute is published to `usercounter` topic, so you can look at the results with `kafka-console-consumer --bootstrap-server [KAFKA_BROKER_HOST]:[KAFKA_BROKER_PORT] --topic usercounter`. 
     * It publishes the JSON message `{"uniqueUsers":1,"ts":1468245240}` corresponding to the number of unique users in the time window beginning at `ts`.
     * Performance metrics are also output to the console (every 10k user frames processed)
 
@@ -32,22 +34,22 @@ com.doodle {
         hostname = "localhost"                    // Kafka broker hostname
         port = "9092"                             // Kafka broker port
         user_record_topic = "userframes"          // Input Topic containing user frames 
-        user_counter_topic = "usercounter"        // Output Topic to which unique user count per time frame are published
+        user_counter_topic = "usercounter"        // Output Topic to which count of unique User IDs per time frame are published
         poll_rate_ms = 100                        // Rate in ms at which the application poll messages from user_record_topic
     }
     stream {
         count_interval_in_minute = 1              // Time frame for which we want to count unique users. Default is one minute
         kafka_message_delay_in_second = 5         // User frames arriving after this delay are still counted in the time frame
-        from_beginning = true                     // Reads Kafka messages from the beginning of the stream if set to true, otherwise starts from latest offset
+        from_beginning = true                     // Reads Kafka messages from the beginning of the stream if set to true, otherwise starts from latest commited offset
     }
 }
 ```
 
 ## Application functionalities
-* The `UserCounter` application instantiates a `Kafka Consumer` which subscribes to a Kafka topic `userframes` containing `User frames` in JSON format. 
+* The `UserCounter` application instantiates a `Kafka Consumer` which subscribes to `userframes` Kafka topic containing `User frames` in JSON format. 
 * It polls messages from `Kafka` at a given interval (by default 100ms) and processes each `User frame` in order to count the number of unique `User IDs` in a given time frame (by default 1 minute). To do so, it deserializes the `User frame` and gets the `ts` and `uid` fields.
-* When the count of unique IDs is collected for the current time window, the application publishes to an other Kafka topic `usercounter` the following message in JSON format containing the number of unique users and the timestamp corresponding to the beginning of the time window:
-    * `{"uniqueUsers":34981,"ts":1468245240}`
+* When the count of unique `User IDs` is collected for the current time window, the application publishes to `usercounter` Kafka topic the following message in JSON format: 
+    * `{"uniqueUsers":34981,"ts":1468245240}` : `uniqueUsers` being the count of unique `User IDs` and `ts` being the timestamp corresponding to the beginning of the time frame
 * The `User frames` can be processed from the beginning of the topic or from the latest committed offset.
 * Edge cases the application supports:
     * If a `User frame` arrives after given delay (by default 5 seconds), the `User frame` is still counted in its time window.
@@ -73,17 +75,17 @@ This package contains the data pipeline connectors. It is composed of the `kafka
 Other connectors could be added for example to consume other topics and we could create a generic `Consumer` and `Producer`abstract class.
 
 ### com.doodle.containers
-Case classes encapsulating the data structures used in the project are in the containers package. It contains the input/output topic format and the performance data we write to the CSV.
+Case classes encapsulating the data structures used in the project are in the `containers` package. It contains the input/output topic format and the performance data we write to the CSV. Scala `case classes` are very useful to model immutable data.
 
 ### com.doodle.stream
-The `User Counter Application` is inside the `stream` package. It starts the kafka consumer and finishes only if we interrupt the program.
+The `User Counter Application` resides inside the `stream` package. It starts the kafka consumer and finishes only if we interrupt the program.
 It also instantiates a `UserCounterState` which helps counting the number of unique `User IDs` in the current time window. Please find below the details of the counting algorithm:
 
 #### User Counter Algorithm
-We know that `User frames` arrive 99.9% of the time within a delay of 5 seconds. We want therefore to count the number of unique users within the current time window and include `User frame` arriving a bit late before publishing to the output topic the number of unique users.
+We know that `User frames` arrive 99.9% of the time within a delay of 5 seconds. We want therefore to count the number of unique users within the current time window and include `User frames` arriving a bit late before publishing to the output topic the number of unique `User IDs`.
 To do so, we keep the following state variables:
 * `currentTimeWindow`: the timestamp of the beginning of the current time window. It is the `currentTimestamp - currentTimestamp % [WINDOW TIME INTERVAL]`. By default `[WINDOW TIME INTERVAL]` is set to 1 minute.
-* `currentWindowUsers`: a `HashSet<UserId>` containing the `User IDs` of the with a `ts` in the `currentTimeWindow`
+* `currentWindowUsers`: a `HashSet<UserId>` containing the `User IDs` with a `ts` in the `currentTimeWindow`
 * `nextWindowUsers`: a `HashSet<UserId>` containing the `User IDs` arriving in the next time window, before the current time window is closed as a delay is tolerated.
 We choose to use `HashSet` as adding an element is done in O(1) and also getting the set size.
 
@@ -105,7 +107,8 @@ for each userRecord:
 
 The method `tryClosingWindow` will close the current window if `latestUser.ts > currentTimeWindow + [WINDOW TIME INTERVAL] + [MESSAGE DELAY]`:
 
-```      
+```    
+tryClosingWindow:  
     // number of unique users in the current time window
     val userCountRecord = UserCountRecord(currentWindowUsers.size, currentTimeWindow)
     // advance the current time window to the next time window
@@ -117,7 +120,7 @@ The method `tryClosingWindow` will close the current window if `latestUser.ts > 
     // publishes the user count record to Kafka!
     userCounterProducer.writeToKafka(userCountRecord)
 ```
-In fact, we want to output the count of unique users as soon as possible, with a latency of 5 seconds. We can increase this latency to achieve higher precision.
+In fact, we want to output the count of unique users as soon as possible, with a latency of 5 seconds to count 99.9% of the `User frames`. We can increase this latency to achieve higher precision.
 
 In order to test the logic, I put the following records in the input topic which counts records for every minute:
 ```
@@ -141,7 +144,7 @@ In order to test the logic, I put the following records in the input topic which
                     ====> publishes {"uniqueUsers":1,"ts":360}
 
 ```
-Note: In order to improve the testing: we could add a test class and modify the `processUserRecord` function to return a `UserCountRecord` and verify that for an array of `UserRecord` the expected `UserCountReord` are returned.
+*Note: In order to improve the testing we could add a test class and modify the `processUserRecord` function to return a `UserCountRecord` and verify that for an array of `UserRecord` the expected `UserCountRecord` are returned.*
 
 ## Performance tests
 ### Testing environment
@@ -154,12 +157,12 @@ At each run of the application, the messages in the topics were consumed from th
 
 #### Metrics
 * `User frames` processed by second
-* Total application time in ms
-* The time spent in processing the `User frames`
+* Total total application time in ms
+* The time spent in processing the `User frames` (User Counter Algorithm described above)
 * The number of `User frames` polled by the kafka consumer in the poll interval (100ms by default)
 * The application memory usage
 
-The metrics are saved to a CSV file in `benchmark/performance.csv` for each run, and also to stdout every 10k processed user frames.
+The metrics are saved to a CSV file in `benchmark/performance.csv` for each run, and also to stdout every 10k `User frames` processed.
 Application variables are used to compute the metrics and the application `Runtime` to get the memory usage.
 
 ### Benchmarks
@@ -168,7 +171,7 @@ All run metrics are saved in `benchmark/performance.csv`.
 #### JSON Serialization cost
 In order to compute the cost of the deserialization, we can run the application with a Kafka consumer deserializing the values as string.
 There is a `UserCounterAppString` application which can be started with `sbt "runMain com.doodle.stream.UserCounterAppString"`. It outputs to stdout the application running time to process the 1 million `User frames`.
-It takes 5 seconds to process the 1 million records, so it processes *200k records by second*.
+It takes 5 seconds to process the 1 million records, so it processes **200k records by second**.
 Now, if we run the `UserCounterApp` on the same data with the same configurations, we obtain the following performance output:
 
 |                     |                    |                   |                    |                            | 
@@ -176,20 +179,19 @@ Now, if we run the `UserCounterApp` on the same data with the same configuration
 | userFramesProcessed | userFramesBySecond | applicationTimeMs | timeInProcessingMs | percentageInUserProcessing | 
 | 1000000             | 45454              | 21713             | 2173               | 0                          | 
 
-The application deserializing the JSON data takes now 21 seconds to process the 1 million records, so 45k records by second, which is 4.4 times longer.
-We also see that the time spent in processing the `User frame` can be neglected as  it represents only 0.09% of the processing.
+The application deserializing the JSON data takes now 21 seconds to process the 1 million records, so **45k records by second**, which is **4.4 times longer**.
+We also see that the time spent in processing the `User frames` can be neglected as  it represents only 0.09% of the processing.
 
-*Alternatives to JSON*: 
-- Avro seems to be widely use for (de)serializing data to/from Kafka. It supports direct mapping to JSON and has a compact format. However, from this article https://labs.criteo.com/2017/05/serialization/ comparing serializers, we can see that Thrift and Protobuf achieve better performances.
-- Custom serializer: we could also (de)serialize directly Scala case classes with custom serializers
+**Alternatives to JSON**: 
+- `Avro` seems to be widely use for (de)serializing data to/from Kafka. It supports direct mapping to JSON and has a compact format. However, from this article https://labs.criteo.com/2017/05/serialization/ comparing serializers, we can see that `Thrift` and `Protobuf` achieve better performances.
+- `Custom serializer`: we could also (de)serialize directly Scala case classes with custom serializers
 
-We should definitely test and benchmark different serializers before going with a specific one as it seems to be the bottleneck of the application.
+We should test and benchmark different serializers before going with a specific one as we can observe it is the bottleneck of the application.
 
-#### Counting for minute / hour / day / month / year
-We run the application counting the number of unique by minute/hour/day/month/year.
-It means that the number of unique `User IDs` stored in the HashMap is increasing and we keep more data in memory.
-We can see that the memory usage increases from 50mb for 1min to 55mb for 1year, and there are 99993 unique `User IDs` when aggregating over one year.
-The HashSet don't use a lot of memory to store the unique `User IDs`. 
+#### Counting per minute / hour / day / month / year
+We run the application counting the number of unique `User IDs` by minute/hour/day/month/year.
+The number of unique `User IDs` stored in the HashMap is increasing when the time frame is larger, so we keep more data in memory.
+It is confirmed if we look at the memory usage which increases from 50mb for a time frame of 1min to 55mb for a time frame of 1year.
 We can also observe that the number of `User Frames` processed by second increases as we don't close time windows as frequently when aggregating over a longer period.
 
 |                   |                    |                   |                    |                            |               | 
@@ -215,9 +217,9 @@ In this benchmark we compare the frequency at which messages are consumed from K
 *Note about the benchmarks:* we should run each test at least 10 times to get more accurate performance metrics. Also, we should generate more data and test how the application scales with a higher number of unique `User IDs` per time frame.
 
 ### Scaling
-1. *Parallize consumers / producers*: we should have several instances of consumers and producers. For example, if we increase the number of partition of each Kafka topic, we can assign each consumer to a specific partition. Then when we write to the counter topic, we could also randomly select a producer which writes to a specific partition.
-2. *Increase number of topics*: parallelization can also be achieved by increasing the number of kafka topics. We then need to customize our consumers/producers to read/write to random or specific topics.
-3. *Distributed setup*: if we want to scale the application over a cluster of machines, we might want to use some Big Data frameworks which already handle the distribution of Streaming applications. We could analyze the different frameworks, do advanced benchmark and move with the appropriate solution. There is for example Kafka Streams, Spark Streaming, Storm, Samza, ... There are some interesting articles comparing those frameworks (e.g. https://medium.com/@chandanbaranwal/spark-streaming-vs-flink-vs-storm-vs-kafka-streams-vs-samza-choose-your-stream-processing-91ea3f04675b). We should also consider the learning curve and the current tech stack.
+1. **Parallelize consumers / producers**: we could have several instances of consumers and producers. For example, if we increase the number of partitions of each Kafka topic, we can assign each consumer to a specific partition. Then when we write to the counter topic, we could also randomly select a producer which writes to a specific partition.
+2. **Increase number of topics**: parallelization can also be achieved by increasing the number of kafka topics. We then need to customize our consumers/producers to read/write to random or specific topics.
+3. **Distributed setup**: if we want to scale the application over a cluster of machines, we might want to use some Big Data frameworks which already handle the distribution of Streaming applications. We could analyze the different frameworks, do advanced benchmark and move with the appropriate solution. There is for example Kafka Streams, Spark Streaming, Storm, Samza, ... There are some interesting articles comparing those frameworks (e.g. https://medium.com/@chandanbaranwal/spark-streaming-vs-flink-vs-storm-vs-kafka-streams-vs-samza-choose-your-stream-processing-91ea3f04675b). It is also important to consider the learning curve and the current tech stack.
 
 ### Counting for different time frames 
 We can have one topic dedicated for a specific time frame. We could have a "minute" topic, an "hour" topic, etc. and the application should read/write to the appropriate topic. For example, to do aggregation over one hour we could consume the output of the "minute" counter.
